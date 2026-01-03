@@ -1,5 +1,11 @@
 # CavRogue
 
+🎭 **Want the story + full gameplay/procgen details?**  
+Read the design doc: **[README_story_en.mb](README_story_en.mb)**  
+(It explains the lore, game loop, procedural generation approach, enemy types & patterns, and the ESP32/Nokia 5110 target.)
+
+---
+
 **CavRogue** is a minimalist roguelike made in **Python (Pygame)**, built as a **PC prototype** before an
 **ESP32-S3 (N16R8) port** using a **Nokia 5110 / PCD8544 (84×48, 1-bit)** display and **at least 6 buttons**.
 
