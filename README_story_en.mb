@@ -1,0 +1,214 @@
+# 🕳️⚔️ CavRogue — Design Doc (Story, Gameplay & ProcGen)
+
+Welcome to the “dev journal” of **CavRogue** 😄  
+Here we explain the **vibe**, the **gameplay loop**, the **procedural generation**, and the **enemy types**… with a bit more fantasy, emojis, and “cursed cave adventure” energy ✨🦇
+
+> 🎯 Project goal: a super readable **1‑bit roguelike**, playable with **6 buttons**, designed to be ported to  
+> **ESP32‑S3 (N16R8)** + **Nokia 5110 / PCD8544 (84×48, 1‑bit)**.
+
+---
+
+## 🌟 The pitch (one sentence)
+
+A brave delver goes down into a living, shifting, cursed cave…  
+hunting fragments of an ancient artifact while creatures and constructs stalk you in the dark. 😈🔦
+
+---
+
+## 🧙‍♂️ Lore & story (why are we here?)
+
+Under an abandoned mine lies a network of tunnels known as **The Vault**.  
+Legends say an artifact called the **Basalt Heart** was shattered into fragments.
+
+Since then, the cave **moves**. It **breathes**. It **rewrites** its own corridors.  
+And it has “grown” guardians: rusty machines, hungry shadows, eyes glowing through dust… 👁️🪨
+
+You play as a **delver**:  
+a scout sent to retrieve **fragments** and bring back **data**.
+
+### 🔁 Why runs restart (the roguelike reset)
+When you fall, it’s not a classic “game over”… it’s the cave **closing behind you**.
+
+- cave‑ins 🧱
+- energy surges ⚡
+- map interference 🗺️❌
+- doors that didn’t exist yesterday 🚪✨
+
+You crawl back to the surface… or wake up at camp, covered in stone dust.  
+The next descent will be **different**.
+
+> 🧩 (Future option): the only thing that truly carries over is your knowledge (and maybe a tiny meta‑progression later 😉).
+
+---
+
+## 🎮 Gameplay loop (the heart of the run)
+
+A typical run:
+
+1. **Spawn** (short “safe” area) 🏕️  
+2. **Explore** a procedurally generated room 🧭  
+3. **Fight / dodge** 🏹  
+4. **Find the exit** (or meet a goal) 🚪  
+5. **Descend deeper** (next level) ⛏️  
+6. (Optional) Every X levels: **bonus choice** 🎁  
+7. You die? ➜ **new descent** 🔁
+
+### 🧠 Feel goals
+- “One more run 😅” pacing (fast restarts, addictive)
+- Readable on a tiny screen (big shapes, low clutter)
+- Difficulty = patterns + positioning, not “cheap shots”
+
+---
+
+## 🎛️ Controls (6 buttons minimum)
+
+- ⬆️⬇️⬅️➡️ : movement
+- 🅰️ A : action / confirm / pick bonus
+- 🅱️ B : shoot / back (context dependent)
+
+Optional if you add 1–2 more buttons later:
+- ▶️ Start : pause/menu
+- ⭐ Select : scores / info
+
+---
+
+## ⚙️ Core mechanics
+
+### 🏃 Movement
+- Simple and responsive
+- Collisions = walls/rocks (no complex physics)
+
+### 🔫 Shooting
+- Bullets are **very readable** (1‑bit)
+- Fire rate is limited to keep patterns understandable
+
+### ❤️ Health / damage
+- Keep it simple (e.g. 3 hearts ❤️❤️❤️ or a tiny bar)
+- “No-hit run” potential for bragging rights 😎
+
+### 🧮 Score (simple ideas)
+- +X per enemy defeated
+- +X per depth reached
+- (Optional) +X “perfect clear”, “speed”, etc.
+
+---
+
+## 🧪 Procedural generation (ProcGen) — ESP32‑friendly version
+
+We want procedural content that’s **cheap** but still has **personality**.
+
+### 🗺️ Recommended recipe (simple + reliable)
+1. Pick room size (within limits) 📏  
+2. Place a safe **spawn** 🏕️  
+3. Place an **exit** far enough 🚪  
+4. Create obstacles as rock “blobs” 🪨  
+   - a few seeds
+   - grow each seed in small steps (tiny random walk / light cellular)
+5. Validate a path exists (spawn ➜ exit) ✅  
+6. Spawn enemies (minimum distance from player) 👾
+
+### 📈 How the procgen scales
+To raise tension without exploding complexity:
+
+- 🧱 Slightly meaner obstacle layouts (narrower corridors)
+- 👾 More enemies (slowly)
+- 📏 Bigger rooms sometimes (not every level)
+
+> ✅ Tip: increase map size **every 2 levels** (or every 5), and enemies **+1 per level**. Simple to tune, easy to explain.
+
+---
+
+## 👹 Enemies (clear patterns on a tiny display)
+
+On a Nokia‑sized screen, what makes an enemy “unique” is mostly:
+- how it **moves**
+- how it **shoots**
+
+Here’s a fantasy cave bestiary 😈✨  
+(Your code can keep technical names, but the doc can be fun.)
+
+### 🟢 1) The Pebble Pinger (basic shooter)
+- slowly follows
+- fires a single aimed shot at intervals
+- role: teaches dodging
+
+### 🟡 2) The Scrying Eye (sweep / burst)
+- moves in short bursts
+- fires a short burst (2–3) or a sweep
+- role: forces repositioning, punishes camping
+
+### 🔵 3) The Mist Drifter (wander)
+- semi-random movement
+- rarely shoots
+- role: adds chaos and pushes bad angles
+
+### 🔴 4) The Spike Charger (dash)
+- waits… then dashes in a straight line
+- sometimes no shooting at all
+- role: panic moments 😱
+
+### 🟣 5) The Relic Turret (static)
+- doesn’t move
+- predictable patterns (single/double/spread)
+- role: zone control (micro-puzzle)
+
+### ⚫ 6) The Splitter (rare elite)
+- on death, splits into 2 weaker minis
+- role: “oh no…” but just enough 😅
+
+#### ✅ Anti‑unfair rules
+- never spawn too close to the player
+- consistent bullet speeds
+- cap simultaneous bullets on screen (readable + ESP32‑friendly)
+
+---
+
+## 🧟‍♂️ (Optional) Mini‑boss / Guardian
+
+Every X levels: a bigger variant with **two phases**:
+- normal phase (slow, precise)
+- rage phase at low HP (short bursts)
+
+Goal: a quick “boss moment”, not a marathon.
+
+---
+
+## 🖤 Why 1‑bit is a strength (not a punishment)
+
+1‑bit forces:
+- strong silhouettes
+- short but punchy animations
+- a consistent retro look
+
+Result: even on PC, it becomes a style choice 🔥
+
+---
+
+## 🧭 Roadmap (PC ➜ ESP32)
+
+### ✅ Short term (PC prototype)
+- lock enemy roster + patterns
+- lock ProcGen rules (size, obstacles, spawns)
+- improve menus + score screen
+- add a stylish “story screen” (short text + icons)
+
+### 🔜 Mid term (ESP32)
+- embedded game loop
+- 1‑bit framebuffer rendering (PCD8544)
+- GPIO buttons + debounce
+- score/save in NVS or a tiny flash file
+
+---
+
+## 📌 Things to add later (great for GitHub)
+- 📸 a 20–30s gameplay GIF (huge impact)
+- 🕹️ a “6 buttons” mapping + wiring diagram
+- 📊 tuning table: fire rate, bullet speed, enemy spawn rules
+- 🧪 enemy list with one-line pattern descriptions
+
+---
+
+## 💬 Fun notes (keep this energy)
+- If the player dies in 2 seconds, they should think: “ok, that’s on me 😅”
+- If they survive, they should think: “I’m becoming unstoppable 😈”
+- And if the cave traps them… it should make them want to dive again 😄🕳️
