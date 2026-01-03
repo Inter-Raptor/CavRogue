@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+
+.venv/
+venv/
+
+build/
+dist/
+*.spec
+
+cave_rogue_save.json
+.DS_Store
+Thumbs.db
