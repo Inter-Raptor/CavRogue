@@ -86,6 +86,8 @@ static inline const char* stageLabel(AgeStage s);
 static void enterState(TriState st, uint32_t now);
 static bool startTask(TaskKind k, uint32_t now);
 static void resetToEgg(uint32_t now);
+static void handleDeath(uint32_t now);
+static void eraseSavesAndRestart();
 
 // AJOUT (tactile) : prototypes pour éviter tout souci d'auto-prototypes Arduino
 static void uiPressAction(uint32_t now);
@@ -803,13 +805,14 @@ static inline const char* uiSingleLabel() {
   if (phase == PHASE_EGG) return "Eclore";
   if (phase == PHASE_HATCHING) return "...";
   if (phase == PHASE_RESTREADY) return "Repose";
-  if (phase == PHASE_TOMB) return "...";
+  if (phase == PHASE_TOMB) return "Recommencer";
   if (state == ST_SLEEP) return "Reveiller";
   return "?";
 }
 static inline uint16_t uiSingleColor() {
   if (phase == PHASE_EGG) return 0x07E0;
   if (phase == PHASE_RESTREADY) return 0xFFFF;
+  if (phase == PHASE_TOMB) return TFT_RED;
   if (state == ST_SLEEP) return COL_ENERGIE;
   return 0xC618;
 }
@@ -1832,11 +1835,33 @@ static void updateHealthTick(uint32_t now) {
   if (ds < 0) pet.sante = clamp01f(pet.sante + ds);
 
   if (pet.sante <= 0) {
-    pet.vivant = false;
-    enterState(ST_DEAD, now);
-    setMsg("Il est mort...", now, 4000);
-    saveNow(now, "dead");
+    handleDeath(now);
   }
+}
+
+static void handleDeath(uint32_t now) {
+  pet.vivant = false;
+  phase = PHASE_TOMB;
+  task.active = false;
+  task.kind = TASK_NONE;
+  appMode = MODE_PET;
+  enterState(ST_DEAD, now);
+  activityShowFull(now, "Vous n'avez pas pris soin. Il a perdu la vie.");
+  uiSel = 0;
+  uiSpriteDirty = true;
+  uiForceBands = true;
+  saveNow(now, "dead");
+}
+
+static void eraseSavesAndRestart() {
+  if (sdReady) {
+    if (SD.exists(SAVE_A)) SD.remove(SAVE_A);
+    if (SD.exists(SAVE_B)) SD.remove(SAVE_B);
+    if (SD.exists(TMP_A)) SD.remove(TMP_A);
+    if (SD.exists(TMP_B)) SD.remove(TMP_B);
+  }
+  delay(50);
+  ESP.restart();
 }
 
 // ================== Tick pet (1 minute * SIM_SPEED) ==================
@@ -2337,7 +2362,12 @@ static void uiPressAction(uint32_t now) {
     return;
   }
 
-  if (phase == PHASE_HATCHING || phase == PHASE_TOMB) return;
+  if (phase == PHASE_TOMB) {
+    eraseSavesAndRestart();
+    return;
+  }
+
+  if (phase == PHASE_HATCHING) return;
 
   if (phase == PHASE_RESTREADY) {
     phase = PHASE_TOMB;
