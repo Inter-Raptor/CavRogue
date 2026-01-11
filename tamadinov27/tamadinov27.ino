@@ -804,15 +804,15 @@ static inline uint8_t uiButtonCount() {
 static inline const char* uiSingleLabel() {
   if (phase == PHASE_EGG) return "Eclore";
   if (phase == PHASE_HATCHING) return "...";
-  if (phase == PHASE_RESTREADY) return "Repose";
+  if (phase == PHASE_RESTREADY) return "Recommencer";
   if (phase == PHASE_TOMB) return "Recommencer";
   if (state == ST_SLEEP) return "Reveiller";
   return "?";
 }
 static inline uint16_t uiSingleColor() {
   if (phase == PHASE_EGG) return 0x07E0;
-  if (phase == PHASE_RESTREADY) return 0xFFFF;
-    if (phase == PHASE_TOMB) return TFT_RED;
+  if (phase == PHASE_RESTREADY) return 0x07E0;
+  if (phase == PHASE_TOMB) return TFT_RED;
   if (state == ST_SLEEP) return COL_ENERGIE;
   return 0xC618;
 }
@@ -1118,9 +1118,35 @@ static void rebuildUISprites(uint32_t now) {
   uiTop.fillSprite(KEY);
 
   char line[96];
+  bool showStatusLine = false;
   if (phase == PHASE_EGG || phase == PHASE_HATCHING) {
     snprintf(line, sizeof(line), "Oeuf");
-} else if (phase == PHASE_TOMB) {
+    showStatusLine = true;
+  } else if (phase == PHASE_RESTREADY) {
+    const char* l1 = "Felicitations !";
+    const char* l2 = "Grace a vous,";
+    const char* l3 = "votre dinosaure";
+    const char* l4 = "a eu une belle vie.";
+    const char* l5 = "Il repose desormais";
+    const char* l6 = "au paradis des dinos.";
+
+    uiTop.setTextSize(1);
+    uiTop.setTextColor(TFT_BLACK, KEY);
+    uiTop.setCursor(11,  9);  uiTop.print(l1);
+    uiTop.setCursor(11, 23);  uiTop.print(l2);
+    uiTop.setCursor(11, 37);  uiTop.print(l3);
+    uiTop.setCursor(11, 51);  uiTop.print(l4);
+    uiTop.setCursor(11, 65);  uiTop.print(l5);
+    uiTop.setCursor(11, 79);  uiTop.print(l6);
+
+    uiTop.setTextColor(TFT_WHITE, KEY);
+    uiTop.setCursor(10,  8);  uiTop.print(l1);
+    uiTop.setCursor(10, 22);  uiTop.print(l2);
+    uiTop.setCursor(10, 36);  uiTop.print(l3);
+    uiTop.setCursor(10, 50);  uiTop.print(l4);
+    uiTop.setCursor(10, 64);  uiTop.print(l5);
+    uiTop.setCursor(10, 78);  uiTop.print(l6);
+  } else if (phase == PHASE_TOMB) {
 
   // 4 lignes (évite les accents si ton font les gère mal)
   const char* l1 = "Vous l'avez neglige.";
@@ -1146,19 +1172,21 @@ static void rebuildUISprites(uint32_t now) {
 
   // IMPORTANT: on sort ici sinon le code plus bas ré-affiche autre chose
 
-}
-  else {
+  } else {
     snprintf(line, sizeof(line), "Sante:%d  Age:%lum  %s",
              (int)roundf(pet.sante),
              (unsigned long)pet.ageMin,
              stageLabel(pet.stage));
+    showStatusLine = true;
   }
 
-  uiTop.setTextSize(1);
-  uiTextShadow(uiTop, 6, 2, line, TFT_WHITE, KEY);
+  if (showStatusLine) {
+    uiTop.setTextSize(1);
+    uiTextShadow(uiTop, 6, 2, line, TFT_WHITE, KEY);
+  }
 
   int nameW = 0;
-  if (phase == PHASE_ALIVE || phase == PHASE_RESTREADY) {
+if (phase == PHASE_ALIVE) {
     uiTop.setTextDatum(top_right);
     uiTop.setTextSize(1);
     uiTop.setTextColor(TFT_WHITE, KEY);
@@ -1167,7 +1195,7 @@ static void rebuildUISprites(uint32_t now) {
     nameW = uiTop.textWidth(petName);
   }
 
-  if (phase == PHASE_ALIVE || phase == PHASE_RESTREADY) {
+  if (phase == PHASE_ALIVE) {
     uint32_t need = (pet.stage == AGE_JUNIOR) ? EVOLVE_JUNIOR_TO_ADULT_MIN
                  : (pet.stage == AGE_ADULTE) ? EVOLVE_ADULT_TO_SENIOR_MIN
                  : EVOLVE_SENIOR_TO_REST_MIN;
@@ -1188,7 +1216,7 @@ static void rebuildUISprites(uint32_t now) {
     }
   }
 
-  if (phase == PHASE_ALIVE || phase == PHASE_RESTREADY) {
+    if (phase == PHASE_ALIVE) {
     int pad = 6;
     int cols = 4;
     int w = (SW - pad*(cols+1)) / cols;
@@ -1816,7 +1844,8 @@ static void evolutionTick(uint32_t now) {
       saveNow(now, "evolve");
     } else {
       phase = PHASE_RESTREADY;
-      setMsg("Il peut reposer en paix", now, 2500);
+      uiSpriteDirty = true;
+      uiForceBands = true;
       saveNow(now, "restready");
     }
   }
@@ -2394,14 +2423,9 @@ static void uiPressAction(uint32_t now) {
   if (phase == PHASE_HATCHING) return;
 
   if (phase == PHASE_RESTREADY) {
-    phase = PHASE_TOMB;
-    activityVisible = true;
-    activityStart = now;
-    activityEnd   = now + 4000;
-    strcpy(activityText, "Repose en paix...");
-    uiSpriteDirty = true; uiForceBands = true;
-
-    saveNow(now, "tomb");
+    resetToEgg(now);
+    setMsg("Un nouvel oeuf...", now, 1500);
+    if (sdReady) saveNow(now, "rest_new");
     return;
   }
 
@@ -3201,14 +3225,7 @@ void loop() {
     }
   }
 
-  // tombe -> reset
-  if (phase == PHASE_TOMB) {
-    if (activityVisible && (int32_t)(now - activityEnd) >= 0) {
-      resetToEgg(now);
-      setMsg("Un nouvel oeuf...", now, 1500);
-      if (sdReady) saveNow(now, "boot_new");
-    }
-  }
+
 
   // INPUT : tactile + encodeur
   handleTouchUI(now);
