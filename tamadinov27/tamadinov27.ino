@@ -1504,7 +1504,9 @@ static inline void renderOneBand(int y0, int bh, int dinoX, int dinoY, const uin
 
 static void renderFrameOptimized(int dinoX, int dinoY, const uint16_t* frame, bool flipX, uint8_t shade) {
   bool camMoved = (fabsf(camX - lastCamX) > 0.001f);
-  int DH = (phase == PHASE_ALIVE || phase == PHASE_RESTREADY) ? triH(pet.stage) : 60;
+  int DH = (phase == PHASE_ALIVE) ? triH(pet.stage)
+           : (phase == PHASE_TOMB || phase == PHASE_RESTREADY) ? (int)tombe_H
+           : 60;
 
   if (camMoved) {
     for (int y = 0; y < SH; y += BAND_H) {
@@ -3232,7 +3234,7 @@ void loop() {
   handleEncoderUI(now);
 
   // tick stats
-  if (phase == PHASE_ALIVE || phase == PHASE_RESTREADY) {
+    if (phase == PHASE_ALIVE) {
     uint32_t tickMs = (uint32_t)(60000UL / (uint32_t)max(1, SIM_SPEED));
     if ((int32_t)(now - lastPetTick) >= (int32_t)tickMs) {
       while ((int32_t)(now - lastPetTick) >= (int32_t)tickMs) {
