@@ -1493,7 +1493,8 @@ static inline void renderOneBand(int y0, int bh, int dinoX, int dinoY, const uin
   } else if (phase == PHASE_TOMB) {
     int w = (int)tombe_W;
     int h = (int)tombe_H;
-    int tx = dinoX + 22;
+    int dinoW = triW(pet.stage);
+    int tx = dinoX + (dinoW - w) / 2;
     int ty = (GROUND_Y - h + 10);
     if (ty < y0 + bh && ty + h > y0) drawImageKeyedOnBand(tombe, w, h, tx, ty - y0);
   }
@@ -1505,8 +1506,12 @@ static inline void renderOneBand(int y0, int bh, int dinoX, int dinoY, const uin
 static void renderFrameOptimized(int dinoX, int dinoY, const uint16_t* frame, bool flipX, uint8_t shade) {
   bool camMoved = (fabsf(camX - lastCamX) > 0.001f);
   int DH = (phase == PHASE_ALIVE) ? triH(pet.stage)
-           : (phase == PHASE_TOMB || phase == PHASE_RESTREADY) ? (int)tombe_H
-           : 60;
+  int spriteY = dinoY;
+  if (phase == PHASE_TOMB || phase == PHASE_RESTREADY) {
+    spriteY = (GROUND_Y - (int)tombe_H + 10);
+  } else if (phase == PHASE_EGG || phase == PHASE_HATCHING) {
+    spriteY = (GROUND_Y - 40);
+  }
 
   if (camMoved) {
     for (int y = 0; y < SH; y += BAND_H) {
@@ -1516,8 +1521,8 @@ static void renderFrameOptimized(int dinoX, int dinoY, const uint16_t* frame, bo
     lastBandMin = 0;
     lastBandMax = (SH - 1) / BAND_H;
   } else {
-    int ymin = dinoY - 2;
-    int ymax = dinoY + DH + 2;
+    int ymin = spriteY - 2;
+    int ymax = spriteY + DH + 2;
     int bmin = clampi(ymin / BAND_H, 0, (SH - 1) / BAND_H);
     int bmax = clampi(ymax / BAND_H, 0, (SH - 1) / BAND_H);
 
@@ -3276,7 +3281,7 @@ void loop() {
   }
 
   // animation / rendu
-  if (phase == PHASE_ALIVE || phase == PHASE_RESTREADY) {
+  if (phase == PHASE_ALIVE) {
     uint8_t animId = animIdForState(pet.stage, state);
 
     bool forceFace = false;
