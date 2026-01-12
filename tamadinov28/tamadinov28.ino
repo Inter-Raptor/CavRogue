@@ -589,12 +589,12 @@ static void audioQueueTone(uint16_t freq, uint16_t durationMs, uint16_t gapMs, u
 }
 
 static void audioSetMode(AudioMode mode) {
-  audioMode = mode;
-  nextHealthBeepAt = 0;
-  if (audioMode == AUDIO_OFF) {
+  if (audioMode != mode) {
     audioQueueClear();
     audioStopTone();
   }
+  audioMode = mode;
+  nextHealthBeepAt = 0;
 }
 
 // sprites UI
@@ -977,30 +977,36 @@ static void audioHealthTick(uint32_t now) {
 }
 
 static void audioPlayMiniGameHit() {
+  if (audioMode != AUDIO_TOTAL) return;
   audioQueueTone(2200, 50, 40, AUDIO_DUTY_LOW);
 }
 
 static void audioPlayEatSound() {
+  if (audioMode != AUDIO_TOTAL) return;
   audioQueueTone(1200, 90, 40, AUDIO_DUTY_MED);
   audioQueueTone(900, 90, 60, AUDIO_DUTY_MED);
 }
 
 static void audioPlayDrinkSound() {
+  if (audioMode != AUDIO_TOTAL) return;
   audioQueueTone(1400, 60, 30, AUDIO_DUTY_MED);
   audioQueueTone(1000, 120, 60, AUDIO_DUTY_MED);
 }
 
 static void audioPlayHugMelody() {
+  if (audioMode != AUDIO_TOTAL) return;
   audioQueueTone(660, 180, 80, AUDIO_DUTY_SOFT);
   audioQueueTone(880, 180, 80, AUDIO_DUTY_SOFT);
   audioQueueTone(990, 220, 120, AUDIO_DUTY_SOFT);
 }
 
 static void audioPlayPoopTone() {
+  if (audioMode != AUDIO_TOTAL) return;
   audioQueueTone(220, 600, 0, AUDIO_DUTY_LOW);
 }
 
 static void audioPlaySleepLullaby() {
+  if (audioMode != AUDIO_TOTAL) return;
   audioQueueTone(523, 280, 120, AUDIO_DUTY_SOFT);
   audioQueueTone(494, 280, 120, AUDIO_DUTY_SOFT);
   audioQueueTone(440, 380, 180, AUDIO_DUTY_SOFT);
