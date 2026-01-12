@@ -6,6 +6,7 @@ enum AgeStage : uint8_t { AGE_JUNIOR, AGE_ADULTE, AGE_SENIOR };
 
 enum UiAction : uint8_t {
   UI_REPOS, UI_MANGER, UI_BOIRE, UI_LAVER, UI_JOUER, UI_CACA, UI_CALIN,
+  UI_AUDIO,
   UI_COUNT
 };
 
@@ -19,6 +20,9 @@ enum GamePhase : uint8_t { PHASE_EGG, PHASE_HATCHING, PHASE_ALIVE, PHASE_RESTREA
 // ================== APP MODE (gestion vs mini-jeux) ==================
 enum AppMode : uint8_t { MODE_PET, MODE_MG_WASH, MODE_MG_PLAY };
 static AppMode appMode = MODE_PET;
+
+enum AudioMode : uint8_t { AUDIO_TOTAL, AUDIO_LIMITED, AUDIO_OFF };
+static AudioMode audioMode = AUDIO_TOTAL;
 
 struct MiniGameCtx {
   bool active = false;
@@ -97,6 +101,17 @@ static void handleTouchUI(uint32_t now);
 static void mgBegin(TaskKind k, uint32_t now);
 static bool mgUpdate(uint32_t now);
 static void mgDraw(uint32_t now);
+
+// Audio
+static void audioInit();
+static void audioTick(uint32_t now);
+static void audioHealthTick(uint32_t now);
+static void audioPlayHugMelody();
+static void audioPlayPoopTone();
+static void audioPlayEatSound();
+static void audioPlayDrinkSound();
+static void audioPlaySleepLullaby();
+static void audioPlayMiniGameHit();
 
 // ================== TYPES (tactile soft-SPI) ==================
 struct TouchSample { uint16_t x, y, z; bool valid; };
@@ -307,6 +322,7 @@ static const int TOUCH_MOSI = 32;
 static const int TOUCH_MISO = 39;
 static const int TOUCH_CLK  = 25;
 static const int TOUCH_CS   = 33;
+static const int PIN_SPEAKER = 26;
 
 class LGFX : public lgfx::LGFX_Device {
   lgfx::Panel_ILI9341 _panel;
@@ -445,6 +461,7 @@ static const uint16_t COL_ENERGIE = 0x001F;
 static const uint16_t COL_FATIGUE = 0x8410;
 static const uint16_t COL_AMOUR2  = 0xF8B2;
 static const uint16_t COL_CACA    = 0xA145;
+static const uint16_t COL_AUDIO   = 0x7BEF;
 
 static inline uint16_t btnColorForAction(UiAction a) {
   switch (a) {
@@ -455,6 +472,7 @@ static inline uint16_t btnColorForAction(UiAction a) {
     case UI_JOUER:  return COL_HUMEUR;
     case UI_CACA:   return COL_CACA;
     case UI_CALIN:  return COL_AMOUR2;
+    case UI_AUDIO:  return COL_AUDIO;
     default:        return TFT_WHITE;
   }
 }
@@ -467,6 +485,7 @@ static inline const char* btnLabel(UiAction a) {
     case UI_JOUER:  return "Jouer";
     case UI_CACA:   return "Caca";
     case UI_CALIN:  return "Calin";
+    case UI_AUDIO:  return "";
     default:        return "?";
   }
 }
@@ -509,6 +528,73 @@ static void setMsg(const char* s, uint32_t now, uint32_t dur=1500) {
     strncpy(activityText, s, sizeof(activityText)-1);
     activityText[sizeof(activityText)-1] = 0;
   }
+}
+
+// ================== AUDIO ==================
+static const uint8_t AUDIO_CH = 0;
+static const uint8_t AUDIO_RES = 10;
+static const uint16_t AUDIO_DUTY_MED = 512;
+static const uint16_t AUDIO_DUTY_LOW = 256;
+static const uint16_t AUDIO_DUTY_SOFT = 160;
+
+struct AudioTone {
+  uint16_t freq = 0;
+  uint16_t durationMs = 0;
+  uint16_t gapMs = 0;
+  uint16_t duty = AUDIO_DUTY_MED;
+};
+
+static const uint8_t AUDIO_QUEUE_MAX = 24;
+static AudioTone audioQueue[AUDIO_QUEUE_MAX];
+static uint8_t audioQHead = 0;
+static uint8_t audioQTail = 0;
+static uint8_t audioQCount = 0;
+static uint32_t audioPhaseEnd = 0;
+static uint16_t audioPendingGap = 0;
+static bool audioPlaying = false;
+static bool audioGap = false;
+static uint32_t nextHealthBeepAt = 0;
+
+static void audioQueueClear() {
+  audioQHead = 0;
+  audioQTail = 0;
+  audioQCount = 0;
+  audioPendingGap = 0;
+  audioPhaseEnd = 0;
+  audioPlaying = false;
+  audioGap = false;
+}
+
+static inline void audioStopTone() {
+  ledcWriteTone(AUDIO_CH, 0);
+  ledcWrite(AUDIO_CH, 0);
+}
+
+static inline void audioStartTone(uint16_t freq, uint16_t duty) {
+  if (freq == 0) { audioStopTone(); return; }
+  ledcWriteTone(AUDIO_CH, freq);
+  ledcWrite(AUDIO_CH, duty);
+}
+
+static inline bool audioCanQueue(uint8_t needed) {
+  return (uint8_t)(audioQCount + needed) <= AUDIO_QUEUE_MAX;
+}
+
+static void audioQueueTone(uint16_t freq, uint16_t durationMs, uint16_t gapMs, uint16_t duty) {
+  if (audioMode == AUDIO_OFF) return;
+  if (!audioCanQueue(1)) return;
+  audioQueue[audioQTail] = AudioTone{freq, durationMs, gapMs, duty};
+  audioQTail = (uint8_t)((audioQTail + 1) % AUDIO_QUEUE_MAX);
+  audioQCount++;
+}
+
+static void audioSetMode(AudioMode mode) {
+  if (audioMode != mode) {
+    audioQueueClear();
+    audioStopTone();
+  }
+  audioMode = mode;
+  nextHealthBeepAt = 0;
 }
 
 // sprites UI
@@ -817,6 +903,115 @@ static inline uint16_t uiSingleColor() {
   return 0xC618;
 }
 
+static int criticalStatCount() {
+  int count = 0;
+  if (pet.faim    < 15) count++;
+  if (pet.soif    < 15) count++;
+  if (pet.hygiene < 15) count++;
+  if (pet.humeur  < 10) count++;
+  if (pet.energie < 10) count++;
+  if (pet.fatigue < 10) count++;
+  if (pet.amour   < 10) count++;
+  if (pet.caca >= 95) count++;
+  return count;
+}
+
+static uint32_t audioHealthIntervalMs() {
+  return (audioMode == AUDIO_LIMITED) ? 20000UL : 10000UL;
+}
+
+static void audioInit() {
+  ledcSetup(AUDIO_CH, 2000, AUDIO_RES);
+  ledcAttachPin(PIN_SPEAKER, AUDIO_CH);
+  audioStopTone();
+}
+
+static void audioTick(uint32_t now) {
+  if (audioMode == AUDIO_OFF) return;
+
+  if (audioPlaying && (int32_t)(now - audioPhaseEnd) >= 0) {
+    audioStopTone();
+    audioPlaying = false;
+    if (audioPendingGap > 0) {
+      audioGap = true;
+      audioPhaseEnd = now + audioPendingGap;
+      audioPendingGap = 0;
+    }
+  }
+
+  if (audioGap && (int32_t)(now - audioPhaseEnd) >= 0) {
+    audioGap = false;
+  }
+
+  if (!audioPlaying && !audioGap && audioQCount > 0) {
+    AudioTone t = audioQueue[audioQHead];
+    audioQHead = (uint8_t)((audioQHead + 1) % AUDIO_QUEUE_MAX);
+    audioQCount--;
+    audioPendingGap = t.gapMs;
+    audioPhaseEnd = now + t.durationMs;
+    audioPlaying = true;
+    audioStartTone(t.freq, t.duty);
+  }
+}
+
+static void audioHealthTick(uint32_t now) {
+  if (audioMode == AUDIO_OFF) return;
+  if (!pet.vivant || phase != PHASE_ALIVE) return;
+
+  uint32_t interval = audioHealthIntervalMs();
+  if (nextHealthBeepAt == 0) nextHealthBeepAt = now + interval;
+
+  int crit = criticalStatCount();
+  if (crit <= 0) {
+    nextHealthBeepAt = now + interval;
+    return;
+  }
+
+  if ((int32_t)(now - nextHealthBeepAt) < 0) return;
+  if (!audioCanQueue((uint8_t)crit)) return;
+
+  for (int i = 0; i < crit; i++) {
+    audioQueueTone(1800, 90, 90, AUDIO_DUTY_MED);
+  }
+  nextHealthBeepAt = now + interval;
+}
+
+static void audioPlayMiniGameHit() {
+  if (audioMode != AUDIO_TOTAL) return;
+  audioQueueTone(2200, 50, 40, AUDIO_DUTY_LOW);
+}
+
+static void audioPlayEatSound() {
+  if (audioMode != AUDIO_TOTAL) return;
+  audioQueueTone(1200, 90, 40, AUDIO_DUTY_MED);
+  audioQueueTone(900, 90, 60, AUDIO_DUTY_MED);
+}
+
+static void audioPlayDrinkSound() {
+  if (audioMode != AUDIO_TOTAL) return;
+  audioQueueTone(1400, 60, 30, AUDIO_DUTY_MED);
+  audioQueueTone(1000, 120, 60, AUDIO_DUTY_MED);
+}
+
+static void audioPlayHugMelody() {
+  if (audioMode != AUDIO_TOTAL) return;
+  audioQueueTone(660, 180, 80, AUDIO_DUTY_SOFT);
+  audioQueueTone(880, 180, 80, AUDIO_DUTY_SOFT);
+  audioQueueTone(990, 220, 120, AUDIO_DUTY_SOFT);
+}
+
+static void audioPlayPoopTone() {
+  if (audioMode != AUDIO_TOTAL) return;
+  audioQueueTone(220, 600, 0, AUDIO_DUTY_LOW);
+}
+
+static void audioPlaySleepLullaby() {
+  if (audioMode != AUDIO_TOTAL) return;
+  audioQueueTone(523, 280, 120, AUDIO_DUTY_SOFT);
+  audioQueueTone(494, 280, 120, AUDIO_DUTY_SOFT);
+  audioQueueTone(440, 380, 180, AUDIO_DUTY_SOFT);
+}
+
 // ================== TASKS ==================
 struct Task {
   bool active = false;
@@ -1113,6 +1308,30 @@ static inline void saveMaybeEachMinute(uint32_t now) {
   }
 }
 
+static void drawAudioIcon(LGFX_Sprite& g, int x, int y, int w, int h, AudioMode mode, uint16_t color) {
+  int cx = x + w / 2;
+  int cy = y + h / 2;
+  int r = max(2, min(w, h) / 8);
+
+  int noteX = cx - r - 4;
+  int noteY = cy + r;
+  g.fillCircle(noteX, noteY, r, color);
+  g.drawLine(noteX + r, noteY - r, noteX + r, noteY - r - 10, color);
+  g.drawLine(noteX + r, noteY - r - 10, noteX + r + 6, noteY - r - 7, color);
+
+  if (mode == AUDIO_TOTAL) {
+    int note2X = cx + r + 4;
+    int note2Y = cy + r - 4;
+    g.fillCircle(note2X, note2Y, r, color);
+    g.drawLine(note2X + r, note2Y - r, note2X + r, note2Y - r - 10, color);
+    g.drawLine(note2X + r, note2Y - r - 10, note2X + r + 6, note2Y - r - 7, color);
+  }
+
+  if (mode == AUDIO_OFF) {
+    g.drawLine(x + 6, y + 6, x + w - 6, y + h - 6, color);
+  }
+}
+
 // ================== UI rebuild ==================
 static void rebuildUISprites(uint32_t now) {
   uiTop.fillSprite(KEY);
@@ -1283,7 +1502,11 @@ if (phase == PHASE_ALIVE) {
       bool onCooldown = ((int32_t)(now - cdUntil[(int)a]) < 0);
       bool busy = task.active || (state == ST_SLEEP) || (appMode != MODE_PET);
 
-      if (busy || onCooldown) disabledLook = true;
+      if (a == UI_AUDIO) {
+        disabledLook = false;
+      } else if (busy || onCooldown) {
+        disabledLook = true;
+      }
 
       if (!disabledLook) {
         fill = sel ? baseCol : TFT_WHITE;
@@ -1305,10 +1528,14 @@ if (phase == PHASE_ALIVE) {
       uiBot.drawRoundRect(xx + 2, yy + 2, bw - 4, bh - 4, max(1, r - 2), TFT_WHITE);
     }
 
-    uiBot.setTextColor(fg, fill);
-    uiBot.setTextSize(2);
-    if (uiBot.textWidth(lab) > (bw - 6)) uiBot.setTextSize(1);
-    uiBot.drawString(lab, xx + bw/2, yy + bh/2);
+    if (nbtn != 1 && (UiAction)i == UI_AUDIO) {
+      drawAudioIcon(uiBot, xx, yy, bw, bh, audioMode, fg);
+    } else {
+      uiBot.setTextColor(fg, fill);
+      uiBot.setTextSize(2);
+      if (uiBot.textWidth(lab) > (bw - 6)) uiBot.setTextSize(1);
+      uiBot.drawString(lab, xx + bw/2, yy + bh/2);
+    }
   }
 }
 
@@ -1579,6 +1806,7 @@ static void applyTaskEffects(TaskKind k, uint32_t now) {
       add(pet.fatigue, EAT_FATIGUE);
       add(pet.soif,    EAT_THIRST);
       add(pet.caca,    EAT_POOP);
+      audioPlayEatSound();
       break;
 
     case TASK_DRINK:
@@ -1586,6 +1814,7 @@ static void applyTaskEffects(TaskKind k, uint32_t now) {
       add(pet.energie, DRINK_ENERGY);
       add(pet.fatigue, DRINK_FATIGUE);
       add(pet.caca,    DRINK_POOP);
+      audioPlayDrinkSound();
       break;
 
     case TASK_WASH:
@@ -1684,6 +1913,7 @@ static bool startTask(TaskKind k, uint32_t now) {
 
     task.ph = PH_DO;
     enterState(ST_SLEEP, now);
+    audioPlaySleepLullaby();
   }
   else {
     task.targetX = worldX;
@@ -1699,6 +1929,8 @@ static bool startTask(TaskKind k, uint32_t now) {
     else if (k == TASK_HUG)  activityStartTask(now, "Fait un calin...", task.plannedTotal);
 
     enterState(ST_SIT, now);
+    if (k == TASK_POOP) audioPlayPoopTone();
+    if (k == TASK_HUG) audioPlayHugMelody();
   }
 
   uiSpriteDirty = true;
@@ -2445,12 +2677,26 @@ static void uiPressAction(uint32_t now) {
     return;
   }
 
-  if (task.active) { setMsg("Occupe !", now, 1200); uiSpriteDirty = true; uiForceBands = true; return; }
-
   uint8_t nbtn = uiButtonCount();
   if (nbtn != UI_COUNT) return;
 
   UiAction a = (UiAction)uiSel;
+
+  if (a == UI_AUDIO) {
+    AudioMode nextMode = (audioMode == AUDIO_TOTAL) ? AUDIO_LIMITED
+                       : (audioMode == AUDIO_LIMITED) ? AUDIO_OFF
+                       : AUDIO_TOTAL;
+    audioSetMode(nextMode);
+    const char* label = (audioMode == AUDIO_TOTAL) ? "Audio: total"
+                      : (audioMode == AUDIO_LIMITED) ? "Audio: limite"
+                      : "Audio: coupe";
+    setMsg(label, now, 1500);
+    uiSpriteDirty = true;
+    uiForceBands  = true;
+    return;
+  }
+
+  if (task.active) { setMsg("Occupe !", now, 1200); uiSpriteDirty = true; uiForceBands = true; return; }
 
   if ((int32_t)(now - cdUntil[(int)a]) < 0) {
     uint32_t sec = (cdUntil[(int)a] - now) / 1000UL;
@@ -2689,6 +2935,7 @@ if ((int32_t)(now - mgNextDropAt) >= 0) {
           ry >= (float)DINO_Y_HIT && ry <= (float)(DINO_Y_HIT + DINO_HIT_H)) {
         mgRain[i].active = false;
         mgDropsHit++;
+        audioPlayMiniGameHit();
       }
     }
 
@@ -2761,6 +3008,7 @@ if ((int32_t)(now - mgNextDropAt) >= 0) {
           by + r >= (float)dinoTop && by - r <= (float)(dinoTop + DINO_H)) {
         mgBalloons[i].active = false;
         mgBalloonsCaught++;
+        audioPlayMiniGameHit();
       }
     }
 
@@ -2968,6 +3216,8 @@ void setup() {
   // init SD (HSPI)
   sdInit();
 
+  audioInit();
+
   pinMode(PIN_BL, OUTPUT);
   digitalWrite(PIN_BL, HIGH);
 
@@ -3169,6 +3419,8 @@ void loop() {
       uiSpriteDirty = true;
       uiForceBands  = true;
     }
+    audioHealthTick(now);
+    audioTick(now);
     return; // on saute la logique gestion pendant mini-jeu
   }
 
@@ -3249,6 +3501,9 @@ void loop() {
 
   // idle
   if (!task.active && phase == PHASE_ALIVE) idleUpdate(now);
+
+  audioHealthTick(now);
+  audioTick(now);
 
   // barre activité: si juste message, elle disparaît
   if (!task.active && activityVisible && (int32_t)(now - activityEnd) >= 0) {
